@@ -1,4 +1,5 @@
-Bash completion for repo utility (http://code.google.com/p/git-repo/).
+Bash completion for repo utility (http://code.google.com/p/git-repo/),
+backported for bash version 3.x.
 
 License: public domain.
 

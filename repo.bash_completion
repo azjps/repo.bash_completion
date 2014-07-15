@@ -1,38 +1,82 @@
+#!/bin/bash
 # -*- mode: sh; -*-
+# A git-repo command-line completion script by aartamonau
+# https://github.com/aartamonau/repo.bash_completion
+# under public domain, backported for bash versions 3.x
 
-declare -A CMD_HANDLERS
-CMD_HANDLERS=(
-    ["init"]=_repo_init
-    ["help"]=_repo_help
-    ["abandon"]=_repo_abandon
-    ["branch"]=_repo_branch
-    ["branches"]=_repo_branches
-    ["checkout"]=_repo_checkout
-    ["cherry-pick"]=_repo_cherry_pick
-    ["diff"]=_repo_diff
-    ["download"]=_repo_download
-    ["forall"]=_repo_forall
-    ["grep"]=_repo_grep
-    ["list"]=_repo_list
-    ["prune"]=_repo_prune
-    ["rebase"]=_repo_rebase
-    ["selfupdate"]=_repo_selfupdate
-    ["smartsync"]=_repo_smartsync
-    ["stage"]=_repo_stage
-    ["start"]=_repo_start
-    ["status"]=_repo_status
-    ["sync"]=_repo_sync
-    ["upload"]=_repo_upload
-    ["version"]=_repo_version
-)
+# set -x
 
 # To be populated by command handlers.
 declare -a OPTIONS
-declare -A ARG_OPTIONS
+declare -a ARG_OPTIONS
+
+_expand() {
+  [ "$cur" != "${cur%\\}" ] && cur="$cur\\"
+
+  # expand ~username type directory specifications
+  if [[ "$cur" == \~*/* ]]; then
+  eval cur=$cur
+
+  elif [[ "$cur" == \~* ]]; then
+    cur=${cur#\~}
+    COMPREPLY=( $( compgen -P '~' -u $cur ) )
+    return ${#COMPREPLY[@]}
+  fi
+}
+
+_filedir() {
+  local IFS=$'\t\n' xspec #glob
+
+  _expand || return 0
+
+  #glob=$(set +o|grep noglob) # save glob setting.
+  #set -f # disable pathname expansion (globbing)
+
+  if [ "${1:-}" = -d ]; then
+    COMPREPLY=( ${COMPREPLY[@]:-} $( compgen -d -- $cur ) )
+    #eval "$glob" # restore glob setting.
+    return 0
+  fi
+
+  xspec=${1:+"!*.$1"} # set only if glob passed in as $1
+  COMPREPLY=( ${COMPREPLY[@]:-} $( compgen -f -X "$xspec" -- "$cur" ) \
+  $( compgen -d -- "$cur" ) )
+  #eval "$glob" # restore glob setting.
+} # _filedir()
 
 declare cur
 declare prev
 declare prev_words
+
+# See http://www.linuxfromscratch.org/pipermail/lfs-dev/2011-September/065108.html
+# part of Debian package bash-completion-lib?
+_split_longopt() {
+  if [[ "$cur" == --?*=* ]]; then
+    # Cut also backslash before '=' in case it ended up there
+    # for some reason.
+    prev="${cur%%=*}"
+    cur="${cur#*=}"
+    return 0
+  fi
+
+  return 1
+}
+
+# This is a "hack" to mimic a string associative array
+# in bash 3, by iterating over a string bash array and splitting
+# key:value pairs at the first colon.
+_lookup_arg_options () {
+  for opt_pair in "${ARG_OPTIONS[@]}"; do
+    opt_key="${opt_pair%%:*}"
+    opt_value="${opt_pair#*:}"
+    if [[ "${1%%:*}" == "${opt_key}" ]]; then
+      echo $opt_value
+      return 1
+    fi
+  done
+  echo ""
+  return 0
+}
 
 _init_cur_prev() {
     local -i i
@@ -213,7 +257,9 @@ _is_long_option() {
 _expects_arg() {
     local opt="$1"
 
-    if [[ ${ARG_OPTIONS[$opt]} ]]
+    # if [[ ${ARG_OPTIONS[$opt]} ]]
+    local handler=$(_lookup_arg_options "$opt")
+    if [[ -n "$handler" ]]
     then
         return 0
     else
@@ -224,7 +270,7 @@ _expects_arg() {
 _handle_options() {
     if _expects_arg "${prev}"
     then
-        local handler=${ARG_OPTIONS[$prev]}
+        local handler=$(_lookup_arg_options "${prev}")
         eval ${handler} "${cur}"
     elif _is_option "${cur}"
     then
@@ -233,8 +279,9 @@ _handle_options() {
         local arg_short
         local arg_long
 
-        for opt in "${!ARG_OPTIONS[@]}"
+        for opt_pair in "${ARG_OPTIONS[@]}"
         do
+            local opt="${opt_pair%%:*}"
             if _is_long_option "${opt}"
             then
                 arg_long="${arg_long} ${opt}"
@@ -269,11 +316,13 @@ _is_known_shortopt() {
 _is_known_longopt() {
     local needle="$1"
 
-    [[ ${ARG_OPTIONS[$1]} ]]
+    local handler=$(_lookup_arg_options "$1")
+    # [[ ${ARG_OPTIONS[$1]} ]]
+    [[ "$handler" ]]
 }
 
 _arg_index() {
-    local -i i=2               # skip repo and command
+    local -i i=2 # skip repo and command
     local -i ix=0
 
     while [ ${i} -lt ${COMP_CWORD} ]
@@ -371,15 +420,15 @@ _repo_init() {
     )
 
     ARG_OPTIONS=(
-        ["-u"]=_no_completion
-        ["--manifest-url"]=_no_completion
-        ["-b"]=_no_completion
-        ["--manifest-branch"]=_no_completion
-        ["-m"]=_manifest_completion
-        ["--manifest-name"]=_manifest_completion
-        ["--reference"]=_dir_completion
-        ["--repo-url"]=_no_completion
-        ["--repo-branch"]=_no_completion
+        "-u:_no_completion"
+        "--manifest-url:_no_completion"
+        "-b:_no_completion"
+        "--manifest-branch:_no_completion"
+        "-m:_manifest_completion"
+        "--manifest-name:_manifest_completion"
+        "--reference:_dir_completion"
+        "--repo-url:_no_completion"
+        "--repo-branch:_no_completion"
     )
 
     _handle_options
@@ -474,8 +523,8 @@ _repo_forall() {
     )
 
     ARG_OPTIONS=(
-        ["-c"]=_path_cmd_completion
-        ["--command"]=_path_cmd_completion
+        "-c:_path_cmd_completion"
+        "--command:_path_cmd_completion"
     )
 
     _handle_options || _before _project_completion -c --command || _filedir
@@ -503,10 +552,10 @@ _repo_grep() {
     )
 
     ARG_OPTIONS=(
-        ["-e"]=_no_completion
-        ["-C"]=_no_completion
-        ["-B"]=_no_completion
-        ["-A"]=_no_completion
+        "-e:_no_completion"
+        "-C:_no_completion"
+        "-B:_no_completion"
+        "-A:_no_completion"
     )
 
     _handle_options || _project_completion
@@ -543,7 +592,7 @@ _repo_rebase() {
     )
 
     ARG_OPTIONS=(
-        ["--whitespace"]=_no_completion
+        "--whitespace:_no_completion"
     )
 
     _handle_options || _project_completion
@@ -572,9 +621,8 @@ _repo_smartsync() {
     )
 
     ARG_OPTIONS=(
-        ["-j"]=_no_completion
-        ["--jobs"]=_no_completion
-
+        "-j:_no_completion"
+        "--jobs:_no_completion"
     )
 
     _handle_options || _project_completion
@@ -608,8 +656,8 @@ _repo_status() {
     )
 
     ARG_OPTIONS=(
-        ["-j"]=_no_completion
-        ["--jobs"]=_no_completion
+        "-j:_no_completion"
+        "--jobs:_no_completion"
     )
 
     _handle_options || _project_completion
@@ -628,8 +676,8 @@ _repo_sync() {
     )
 
     ARG_OPTIONS=(
-        ["-j"]=_no_completion
-        ["--jobs"]=_no_completion
+        "-j:_no_completion"
+        "--jobs:_no_completion"
     )
 
     _handle_options || _project_completion
@@ -644,10 +692,10 @@ _repo_upload() {
     )
 
     ARG_OPTIONS=(
-        ["--re"]=_no_completion
-        ["--reviewers"]=_no_completion
-        ["--cc"]=_no_completion
-        ["--br"]=_branch_completion
+        "--re:_no_completion"
+        "--reviewers:_no_completion"
+        "--cc:_no_completion"
+        "--br:_branch_completion"
     )
 
     _handle_options || _project_completion
@@ -664,6 +712,7 @@ _repo_version() {
 }
 
 _repo() {
+    # This is responsible for the majority of the work.
     COMPREPLY=()
 
     _init_cur_prev
@@ -673,11 +722,31 @@ _repo() {
         _command_completion
     else
         local cmd=${COMP_WORDS[1]}
-        local handler=${CMD_HANDLERS["${cmd}"]}
-        if [ -n ${handler} ]
-        then
-            eval ${handler}
-        fi
+
+        case "${cmd}" in
+          init) _repo_init;;
+          help) _repo_help;;
+          abandon) _repo_abandon;;
+          branch) _repo_branch;;
+          branches) _repo_branches;;
+          checkout) _repo_checkout;;
+          cherry-pick) _repo_cherry_pick;;
+          diff) _repo_diff;;
+          download) _repo_download;;
+          forall) _repo_forall;;
+          grep) _repo_grep;;
+          list) _repo_list;;
+          prune) _repo_prune;;
+          rebase) _repo_rebase;;
+          selfupdate) _repo_selfupdate;;
+          smartsync) _repo_smartsync;;
+          stage) _repo_stage;;
+          start) _repo_start;;
+          status) _repo_status;;
+          sync) _repo_sync;;
+          upload) _repo_upload;;
+          version) _repo_version;;
+       esac
     fi
 
     return 0
