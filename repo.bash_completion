@@ -1,5 +1,4 @@
 #!/bin/bash
-# -*- mode: sh; -*-
 # A git-repo command-line completion script by aartamonau
 # https://github.com/aartamonau/repo.bash_completion
 # under public domain, backported for bash versions 3.x
